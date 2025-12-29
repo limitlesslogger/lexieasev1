@@ -1,6 +1,6 @@
-import express from "express";
-import cors from "cors";
-import cookieParser from "cookie-parser";
+import express from "express"; //creates backend server
+import cors from "cors"; //allows communication between frontend and backend
+import cookieParser from "cookie-parser"; //lets backend read cookies - cookie based auth
 
 import authRoutes from "./routes/authRoutes.js";
 import testRoutes from "./routes/testRoutes.js";
@@ -19,6 +19,7 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 
+//Health check endpoint
 app.get("/", (req, res) => {
   res.send("LexiEase backend running");
 });

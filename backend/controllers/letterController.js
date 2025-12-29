@@ -3,8 +3,8 @@ import axios from "axios";
 import FormData from "form-data";
 
 const LETTERS = "abcdefghijklmnopqrstuvwxyz".split("");
-const EPSILON = 0.3;
-const T_MAX = 4000;
+const EPSILON = 0.3; //30% exploration, 70% exploitation
+const T_MAX = 4000; //Max expected response time in ms
 
 const normalizeTime = (ms) => Math.min(ms / T_MAX, 1);
 
@@ -48,45 +48,93 @@ export const getNextLetter = async (req, res) => {
 /* =====================
    LOG ATTEMPT & UPDATE BANDIT
 ===================== */
-// export const logLetterAttempt = async (req, res) => {
-//   const studentId = req.user._id;
-//   const { letter, correct, responseTimeMs } = req.body;
-
-//   const reward = computeReward({ correct, responseTimeMs });
-
-//   const state = await LetterState.findOne({ studentId, letter });
-
-//   const pulls = state.pulls + 1;
-//   const totalReward = state.totalReward + reward;
-//   const avgReward = totalReward / pulls;
-
-//   state.pulls = pulls;
-//   state.totalReward = totalReward;
-//   state.avgReward = avgReward;
-
-//   await state.save();
-
-//   res.json({ success: true, reward, avgReward });
-// };
 export const logLetterAttempt = async (req, res) => {
-  const studentId = req.user._id;
-  const { letter, responseTimeMs } = req.body;
+  try {
+    const studentId = req.user._id;
+    const{ letter, responseTimeMs } = req.body;
 
-  const audioFile = req.file;
+    if (!letter || responseTimeMs === undefined) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Missing required fields" });
+    }
 
-  const form = new FormData();
-  form.append("audio", audioFile.buffer, "audio.wav");
-  form.append("letter", letter);
+    let correct;
 
-  const mlRes = await axios.post("http://localhost:6000/analyze", form, {
-    headers: form.getHeaders(),
-  });
+    //Determine correctness
+    if (req.file) {
+      try {
+        //ML path (audio file provided)
+        const form = new FormData();
+        form.append("audio", req.file.buffer, "audio.wav");
+        form.append("letter", letter);
 
-  const { correct } = mlRes.data;
+        const mlRes = await axios.post(
+          "http://localhost:6000/analyze",
+          form,
+          { headers: form.getHeaders(), timeout: 5000 }
+        );
 
-  // ⬇️ EXISTING BANDIT UPDATE LOGIC
-  const reward = computeReward({ correct, responseTimeMs });
-  // update LetterState same as before
+        //When audio was not captured properly or other ML error
+        if (mlRes.data?.error) {
+          return res.status(422).json({
+            success: false,
+            reason: "invalid_attempt",
+            message: mlRes.data.error,
+          });
+        }
 
-  res.json({ success: true, ...mlRes.data });
+        correct = mlRes.data.correct;
+
+      } catch (mlErr) {
+        return res.status(422).json({
+          success: false,
+          reason: "ml_unavailable",
+          message: "Could not analyze audio. Please try again.",
+        });
+      }
+    } else {
+      //Non-ML path (no audio, use provided correctness)
+      correct = req.body.correct;
+    }
+
+    if (typeof correct !== "boolean") {
+      return res.status(422).json({ 
+        success: false,
+        reason: "invalid_attempt",
+        message: "Could not determine correctness, Please retry." 
+      });
+    }
+
+    const reward = computeReward({ correct, responseTimeMs });
+
+    const state = await LetterState.findOne({ studentId, letter });
+    if (!state) {
+      return res.status(404).json({ 
+        success: false,
+        error: "Letter state not found",
+      });
+    }
+
+    state.pulls += 1; //number of attempts on a given letter
+    state.totalReward += reward;
+    state.avgReward = state.totalReward / state.pulls;
+
+    await state.save();
+
+    res.json({
+      success: true,
+      letter,
+      correct,
+      reward,
+      avgReward: state.avgReward,
+    });
+
+  } catch (err) {
+    console.error("logLetterAttempt error:", err);
+    res.status(500).json({ 
+      success: false,
+      error: "Internal server error" ,
+    });
+  }
 };
