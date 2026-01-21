@@ -2,10 +2,11 @@ import { useState } from "react";
 import Login from "./auth/Login";
 import LetterLevel from "./student/LetterLevel";
 import SentenceLevel from "./student/SentenceLevel";
+import WordLevel from "./student/WordLevel";
 
 function App() {
   const [user, setUser] = useState(null);
-  const [mode, setMode] = useState("letters"); // "letters" | "sentences"
+  const [mode, setMode] = useState("letters"); // "letters" | "sentences" | "words"
 
   if (!user) return <Login onLogin={setUser} />;
 
@@ -25,13 +26,22 @@ function App() {
           <button
             onClick={() => setMode("sentences")}
             disabled={mode === "sentences"}
+            style={{ marginRight: 10 }}
           >
             Sentence Practice
+          </button>
+
+          <button
+            onClick={() => setMode("words")}
+            disabled={mode === "words"}
+          >
+            Word Practice
           </button>
         </div>
 
         {mode === "letters" && <LetterLevel />}
         {mode === "sentences" && <SentenceLevel />}
+        {mode === "words" && <WordLevel />}
       </div>
     );
   }
