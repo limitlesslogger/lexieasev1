@@ -2,16 +2,18 @@
   "name": "backend",
   "version": "1.0.0",
   "description": "",
+ 
   "main": "main.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node main.js",
+    "dev": "nodemon main.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@google/genai": "^1.38.0",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
