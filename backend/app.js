@@ -7,6 +7,7 @@ import testRoutes from "./routes/testRoutes.js";
 import relationshipRoutes from "./routes/relationshipRoutes.js";
 import letterRoutes from "./routes/letterRoutes.js";
 import sentenceRoutes from "./routes/sentenceRoutes.js";
+import wordRoutes from "./routes/wordRoutes.js";
 
 const app = express();
 
@@ -30,5 +31,6 @@ app.use("/api/test", testRoutes);
 app.use("/api/relationships", relationshipRoutes);
 app.use("/api/letters", letterRoutes);
 app.use("/api/sentences", sentenceRoutes);
+app.use("/api/words", wordRoutes);
 
 export default app;
