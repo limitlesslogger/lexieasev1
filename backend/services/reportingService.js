@@ -291,37 +291,100 @@ export const getSentenceReportData = async (studentId, timeframe = 30) => {
   // Filter to show only attempted sentences (pulls > 0)
   const attemptedStates = states.filter((state) => state.pulls > 0);
   
-  const attempts = attemptedStates.map((state) => {
-    const accuracy = toPercent(Math.max(0, state.avgReward));
-    const eyeScore = Number((1 - Math.max(0, Math.min(1, state.avgReward))).toFixed(2));
+//   const attempts = attemptedStates.map((state) => {
+//     const accuracy = toPercent(Math.max(0, state.avgReward));
+//     // const eyeScore = state.eyeScore ? Number(state.eyeScore.toFixed(2)) : 0;
     
-    // Get the most recent spoken attempt
-    const lastAttempt = state.attempts && state.attempts.length > 0 
+//     // // Get the most recent spoken attempt
+//     // const lastAttempt = state.attempts && state.attempts.length > 0 
+//     //   ? state.attempts[state.attempts.length - 1]
+//     //   : null;
+
+//    const lastAttempt =
+//   state.attempts && state.attempts.length > 0
+//     ? state.attempts[state.attempts.length - 1]
+//     : null;
+
+// const eyeScore =
+//   lastAttempt && lastAttempt.visualScore !== undefined
+//     ? Number(lastAttempt.visualScore.toFixed(2))
+//     : null;
+    
+//     return {
+//       sentence: sentenceMap.get(state.sentenceId) || state.sentenceId.replace(/^.*-s-\d+/, "").trim() || state.sentenceId,
+//       spoken: lastAttempt?.spoken || "",
+//       correct: state.avgReward >= 0.7,
+//       accuracy,
+//       responseTime: estimateResponseTime(state.avgReward, 2200),
+//       eyeScore,
+//       updatedAt: state.updatedAt,
+//     };
+//   });
+
+const attempts = attemptedStates.map((state) => {
+  const accuracy = toPercent(Math.max(0, state.avgReward));
+
+  const lastAttempt =
+    state.attempts && state.attempts.length > 0
       ? state.attempts[state.attempts.length - 1]
       : null;
-    
-    return {
-      sentence: sentenceMap.get(state.sentenceId) || state.sentenceId.replace(/^.*-s-\d+/, "").trim() || state.sentenceId,
-      spoken: lastAttempt?.spoken || "",
-      correct: state.avgReward >= 0.7,
-      accuracy,
-      responseTime: estimateResponseTime(state.avgReward, 2200),
-      eyeScore,
-      updatedAt: state.updatedAt,
-    };
-  });
+
+  const eyeScore =
+    lastAttempt && lastAttempt.visualScore !== undefined
+      ? Number(lastAttempt.visualScore.toFixed(2))
+      : null;
+
+//       if (eyeScore === null) {
+//   return "Not available";
+// }
+
+  return {
+    sentence:
+      sentenceMap.get(state.sentenceId) ||
+      state.sentenceId.replace(/^.*-s-\d+/, "").trim() ||
+      state.sentenceId,
+
+    spoken: lastAttempt?.spoken || "",
+    correct: state.avgReward >= 0.7,
+    accuracy,
+    responseTime: estimateResponseTime(state.avgReward, 2200),
+    eyeScore,
+    updatedAt: state.updatedAt,
+  };
+});
 
   const total = attempts.length;
   const correctCount = attempts.filter((item) => item.correct).length;
   const successRate = total ? Number(((correctCount / total) * 100).toFixed(1)) : 0;
   const tracked = attempts.length;
-  const avgVisualScore = tracked
-    ? Number((attempts.reduce((sum, item) => sum + item.eyeScore, 0) / tracked).toFixed(2))
-    : 0;
+  // const avgVisualScore = tracked
+  //   ? Number((attempts.reduce((sum, item) => sum + item.eyeScore, 0) / tracked).toFixed(2))
+  //   : 0;
+  const validEyeScores = attempts
+  .map(a => a.eyeScore)
+  .filter(v => v !== null && v !== undefined);
+
+const avgVisualScore =
+  validEyeScores.length > 0
+    ? Number(
+        (
+          validEyeScores.reduce((sum, v) => sum + v, 0) /
+          validEyeScores.length
+        ).toFixed(2)
+      )
+    : null;
   const hardSessions = attempts.filter((item) => item.eyeScore >= 0.6).length;
   const hardRate = tracked ? Number(((hardSessions / tracked) * 100).toFixed(1)) : 0;
+  // const hesitationLevel =
+  //   avgVisualScore >= 0.6 ? "High" : avgVisualScore >= 0.3 ? "Moderate" : "Low";
   const hesitationLevel =
-    avgVisualScore >= 0.6 ? "High" : avgVisualScore >= 0.3 ? "Moderate" : "Low";
+  avgVisualScore === null
+    ? "Not available"
+    : avgVisualScore >= 0.6
+    ? "High"
+    : avgVisualScore >= 0.3
+    ? "Moderate"
+    : "Low";
 
   return {
     attempts,

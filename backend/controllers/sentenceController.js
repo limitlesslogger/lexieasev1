@@ -248,6 +248,8 @@ export const logSentenceAttempt = async (req, res) => {
     // Update SentenceState   
     const fluencyScore = Math.min(1, 3000 / responseTimeMs);
     const visualScoreValue = Number(visualScore || 0);
+    // const visualScoreValue =
+    // typeof visualScore === "number" ? visualScore : 0;
     const visionPenalty = visualScoreValue * 0.2;
 
     const sentenceReward =
@@ -271,13 +273,21 @@ export const logSentenceAttempt = async (req, res) => {
     
     // Store the attempt with spoken response
     sentenceState.attempts = sentenceState.attempts || [];
+    // sentenceState.attempts.push({
+    //   spoken: spoken || "",
+    //   expected: expected || "",
+    //   accuracy: Math.round(sentenceAccuracy * 100),
+    //   responseTime: responseTimeMs,
+    //   timestamp: new Date(),
+    // });
     sentenceState.attempts.push({
-      spoken: spoken || "",
-      expected: expected || "",
-      accuracy: Math.round(sentenceAccuracy * 100),
-      responseTime: responseTimeMs,
-      timestamp: new Date(),
-    });
+    spoken: spoken || "",
+    expected: expected || "",
+    accuracy: Math.round(sentenceAccuracy * 100),
+    responseTime: responseTimeMs,
+    visualScore: visualScoreValue,
+    timestamp: new Date(),
+  });
     
     sentenceState.isActive = false;
     await sentenceState.save();

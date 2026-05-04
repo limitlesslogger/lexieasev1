@@ -43,6 +43,7 @@ const sentenceStateSchema = new mongoose.Schema(
       expected: String,
       accuracy: Number,
       responseTime: Number,
+      visualScore: Number,
       timestamp: {
         type: Date,
         default: Date.now,
