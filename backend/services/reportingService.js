@@ -293,11 +293,15 @@ export const getSentenceReportData = async (studentId, timeframe = 30) => {
   
   const attempts = attemptedStates.map((state) => {
     const accuracy = toPercent(Math.max(0, state.avgReward));
-    const eyeScore = Number((1 - Math.max(0, Math.min(1, state.avgReward))).toFixed(2));
-    
+
     // Get the most recent spoken attempt
     const lastAttempt = state.attempts && state.attempts.length > 0 
       ? state.attempts[state.attempts.length - 1]
+      : null;
+
+    const hasVisualScore = Number.isFinite(Number(lastAttempt?.visualScore));
+    const eyeScore = hasVisualScore
+      ? Number(Number(lastAttempt.visualScore).toFixed(2))
       : null;
     
     return {
@@ -305,7 +309,7 @@ export const getSentenceReportData = async (studentId, timeframe = 30) => {
       spoken: lastAttempt?.spoken || "",
       correct: state.avgReward >= 0.7,
       accuracy,
-      responseTime: estimateResponseTime(state.avgReward, 2200),
+      responseTime: lastAttempt?.responseTime || estimateResponseTime(state.avgReward, 2200),
       eyeScore,
       updatedAt: state.updatedAt,
     };
@@ -314,11 +318,12 @@ export const getSentenceReportData = async (studentId, timeframe = 30) => {
   const total = attempts.length;
   const correctCount = attempts.filter((item) => item.correct).length;
   const successRate = total ? Number(((correctCount / total) * 100).toFixed(1)) : 0;
-  const tracked = attempts.length;
+  const trackedAttempts = attempts.filter((item) => item.eyeScore !== null);
+  const tracked = trackedAttempts.length;
   const avgVisualScore = tracked
-    ? Number((attempts.reduce((sum, item) => sum + item.eyeScore, 0) / tracked).toFixed(2))
+    ? Number((trackedAttempts.reduce((sum, item) => sum + item.eyeScore, 0) / tracked).toFixed(2))
     : 0;
-  const hardSessions = attempts.filter((item) => item.eyeScore >= 0.6).length;
+  const hardSessions = trackedAttempts.filter((item) => item.eyeScore >= 0.6).length;
   const hardRate = tracked ? Number(((hardSessions / tracked) * 100).toFixed(1)) : 0;
   const hesitationLevel =
     avgVisualScore >= 0.6 ? "High" : avgVisualScore >= 0.3 ? "Moderate" : "Low";

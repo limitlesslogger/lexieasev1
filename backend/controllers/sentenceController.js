@@ -276,6 +276,8 @@ export const logSentenceAttempt = async (req, res) => {
       expected: expected || "",
       accuracy: Math.round(sentenceAccuracy * 100),
       responseTime: responseTimeMs,
+      visualScore: visualScoreValue,
+      visualIsHard: Boolean(visualIsHard),
       timestamp: new Date(),
     });
     

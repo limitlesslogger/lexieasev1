@@ -2,18 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { apiFetch } from "../api/api";
 import ReadingLens from "./ReadingLens";
-import { computeVisualHesitationScore } from "../utils/visionUtils";
 import {
   applyBrushToKeys,
   getTargetsWithinBrush,
 } from "./brushUtils";
-import {
-  initializeEyeTracking,
-  startSegment,
-  endSegment,
-  getSegmentMetrics,
-  shutdownEyeTracking,
-} from "../utils/eyeTrackingController";
 
 import {
   buildWordFeedbackSpeech,
@@ -48,33 +40,8 @@ export default function WordLevel() {
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const streamRef = useRef(null);
-  const videoRef = useRef(null);
   const lensAreaRef = useRef(null);
   const letterRefs = useRef({});
-
-  useEffect(() => {
-    console.log("WordLevel mounted");
-    if (!videoRef.current) {
-      console.log("VideoRef is null");
-      return;
-    }
-    const init = async () => {
-      console.log("Initialiazing eye tracking...");
-      await initializeEyeTracking(videoRef.current);
-    };
-
-    init();
-
-    return () => {
-      console.log("Shutting down eye tracking...");
-      shutdownEyeTracking();
-    };
-  }, [videoRef.current]);
-
-  useEffect(() => {
-    if (!word) return;
-    startSegment();
-  }, [word]);
 
   /* =========================
      Load next word
@@ -136,7 +103,6 @@ export default function WordLevel() {
       setSpoken("");
       setFeedback(null);
       setShownAt(Date.now());
-      startSegment();
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -161,37 +127,12 @@ export default function WordLevel() {
         const currentWordId = wordId;
         const currentWord = word;
         const responseTimeMs = Date.now() - shownAt;
-        endSegment();
-
-        const metrics = getSegmentMetrics();
-
-        let visionResult = { usable: false, score: 0, isHard: false };
-
-        if (responseTimeMs >= 1000) {
-          visionResult = computeVisualHesitationScore(metrics);
-        }
-
-        console.log("=== VISION DEBUG ===");
-        console.log("Response Time:", responseTimeMs);
-        console.log("Samples:", metrics.samples);
-        console.log("Fixation Count:", metrics.fixationCount);
-        console.log(
-          "Mean Fixation Duration:",
-          metrics.meanFixationDuration.toFixed(2),
-          "ms",
-        );
-        console.log("Visual Score:", visionResult.score.toFixed(3));
-        console.log("Is Hard:", visionResult.isHard);
-        console.log("====================");
 
         const form = new FormData();
         form.append("audio", blob, "speech.webm");
         form.append("wordId", currentWordId);
         form.append("expected", currentWord);
         form.append("responseTimeMs", responseTimeMs);
-        form.append("visionUsable", visionResult.usable);
-        form.append("visualScore", visionResult.score);
-        form.append("visionHard", visionResult.isHard);
 
         const res = await fetch(
           "http://localhost:5001/api/words/attempt-audio",
@@ -263,13 +204,6 @@ export default function WordLevel() {
           border: `1px solid ${readingStyle?.colors.border || "#e2e8f0"}`,
         }}
       >
-        {/* <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          style={{ display: "none" }}
-        /> */}
         <h2 style={styles.title}>🗣️ Word Pronunciation</h2>
 
         <div ref={lensAreaRef} style={styles.lensArea}>

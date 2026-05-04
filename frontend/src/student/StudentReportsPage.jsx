@@ -221,7 +221,7 @@ export default function StudentReportsPage() {
                 <td style={styles.td}>{item.correct ? "Correct" : "Needs focus"}</td>
                 <td style={styles.td}>{item.accuracy}%</td>
                 <td style={styles.td}>{(item.responseTime / 1000).toFixed(1)}s</td>
-                <td style={styles.td}>{item.eyeScore}</td>
+                <td style={styles.td}>{item.eyeScore ?? "Not tracked"}</td>
               </tr>
             )}
           />
