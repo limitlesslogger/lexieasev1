@@ -46,7 +46,7 @@ export default function Signup() {
       // Navigate based on role
       switch (data.role) {
         case "student":
-          navigate("/student/letter-level");
+          navigate("/student/dashboard");
           break;
         case "teacher":
           navigate("/teacher/dashboard");
@@ -112,8 +112,7 @@ export default function Signup() {
           onChange={handleChange}
         >
           <option value="student">Student</option>
-          <option value="teacher">Teacher</option>
-          <option value="parent">Parent</option>
+          <option value="teacher">Therapist</option>
         </select>
 
         <button type="submit" style={auth.button} disabled={loading}>

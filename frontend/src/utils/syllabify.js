@@ -68,16 +68,113 @@ export const getStressedSyllables = (syllables = []) =>
 export const getGoogleStylePronunciation = (syllables = []) =>
   getStressedSyllables(syllables).join("·");
 
-export const speakSyllables = (syllables = [], gapMs = 350) => {
-  if (!("speechSynthesis" in window) || !syllables.length) return;
-  window.speechSynthesis.cancel();
+const getPreferredVoice = () => {
+  if (!("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices?.() || [];
+  return (
+    voices.find((voice) => /en(-|_)?(us|gb)/i.test(voice.lang)) ||
+    voices.find((voice) => /english/i.test(voice.name)) ||
+    voices[0] ||
+    null
+  );
+};
 
-  syllables.forEach((syllable, i) => {
-    setTimeout(() => {
-      const utterance = new SpeechSynthesisUtterance(syllable);
-      utterance.rate = 0.85;
+export const speakText = (
+  text = "",
+  { rate = 0.82, pitch = 1, volume = 1 } = {}
+) => {
+  if (!("speechSynthesis" in window) || !text.trim()) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = rate;
+  utterance.pitch = pitch;
+  utterance.volume = volume;
+  const voice = getPreferredVoice();
+  if (voice) utterance.voice = voice;
+  window.speechSynthesis.speak(utterance);
+};
+
+export const speakSequence = (
+  parts = [],
+  { rate = 0.8, pitch = 1, volume = 1 } = {}
+) => {
+  if (!("speechSynthesis" in window) || !parts.length) return;
+  window.speechSynthesis.cancel();
+  const voice = getPreferredVoice();
+
+  parts
+    .filter(Boolean)
+    .forEach((part) => {
+      const utterance = new SpeechSynthesisUtterance(part);
+      utterance.rate = rate;
+      utterance.pitch = pitch;
+      utterance.volume = volume;
+      if (voice) utterance.voice = voice;
       window.speechSynthesis.speak(utterance);
-    }, i * gapMs);
+    });
+};
+
+export const speakSyllables = (syllables = []) => {
+  if (!syllables.length) return;
+
+  const intro =
+    syllables.length === 1
+      ? "One syllable."
+      : `${syllables.length} syllables.`;
+
+  speakSequence([intro, ...syllables], { rate: 0.72, pitch: 1.02 });
+};
+
+export const speakWordBreakdown = (word = "", syllables = []) => {
+  const cleanWord = normalizeWord(word);
+  if (!cleanWord || !syllables.length) return;
+
+  const intro = `Listen carefully. The word is ${cleanWord}.`;
+  const countText =
+    syllables.length === 1
+      ? "It has one syllable."
+      : `It has ${syllables.length} syllables.`;
+  const breakdown = syllables.join(" ... ");
+  const closing =
+    syllables.length === 1
+      ? `Say it smoothly: ${cleanWord}.`
+      : `Blend the syllables together: ${cleanWord}.`;
+
+  speakSequence([intro, countText, breakdown, closing], {
+    rate: 0.7,
+    pitch: 1.02,
   });
 };
 
+export const buildWordFeedbackSpeech = ({ word = "", syllables = [], feedback }) => {
+  if (!feedback) return "";
+
+  if (feedback.wordCorrect) {
+    return `Clear pronunciation. Nice work saying ${word}.`;
+  }
+
+  if (syllables.length > 1) {
+    return `Try again. Break ${word} into syllables: ${syllables.join(
+      ", "
+    )}. Then say ${word} smoothly.`;
+  }
+
+  return `Try again. Listen to the word ${word} and say it slowly and clearly.`;
+};
+
+export const speakSentenceBreakdown = (sentence = "", focusWords = []) => {
+  const cleanSentence = String(sentence || "").trim();
+  if (!cleanSentence) return;
+
+  const intro = "Listen to the whole sentence.";
+  const focus =
+    focusWords.length > 0
+      ? `Focus words: ${focusWords.join(", ")}.`
+      : "";
+  const closing = "Now say the full sentence clearly.";
+
+  speakSequence([intro, cleanSentence, focus, closing], {
+    rate: 0.72,
+    pitch: 1.01,
+  });
+};

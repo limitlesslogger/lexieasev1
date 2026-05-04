@@ -3,12 +3,14 @@ import WordState from "../models/WordState.js";
 import LetterState from "../models/LetterState.js";
 import { selectNextState } from "../src/bandit/selectNext.js";
 import { updateBanditState } from "../src/bandit/updateState.js";
-import { WORDS } from "../data/words.js";
+import { getTrainingCorpusForStudent } from "../services/trainingContentService.js";
 
 // Chooses the next word based on the student's weakest letters (2–3)
 export const getNextWord = async (req, res) => {
   try {
     const studentId = req.user._id;
+    const corpus = await getTrainingCorpusForStudent(studentId);
+    const availableWords = corpus.words;
     
     // Get weakest letters
     const weakLetterStates = await LetterState.find({ studentId })
@@ -34,7 +36,7 @@ export const getNextWord = async (req, res) => {
       return score;
     };
 
-    const rankedWords = WORDS
+    const rankedWords = availableWords
       .map(w => ({
         ...w,
         score: scoreWord(w.text, weakLetters),
@@ -45,7 +47,7 @@ export const getNextWord = async (req, res) => {
     const finalWords =
       rankedWords.length > 0
         ? rankedWords
-        : WORDS.map(w => ({ ...w, score: 1 }));
+        : availableWords.map(w => ({ ...w, score: 1 }));
 
     // Ensure WordState exists
     await Promise.all(
@@ -101,14 +103,23 @@ export const getNextWord = async (req, res) => {
     await chosenState.save();
 
     // Return word
-    const chosenWord = WORDS.find(
+    const chosenWord = availableWords.find(
       w => w.id === chosenState.wordId
     );
+    if (!chosenWord) {
+      return res.status(500).json({
+        success: false,
+        error: "Selected word not found in training corpus",
+      });
+    }
 
     return res.json({
       success: true,
       wordId: chosenWord.id,
       word: chosenWord.text,
+      sourceSentence: chosenWord.sourceSentence || null,
+      sourceDocTitle: chosenWord.sourceDocTitle || null,
+      trainingSource: corpus.source,
       targetLetters: weakLetters,
     });
 
@@ -124,7 +135,7 @@ export const getNextWord = async (req, res) => {
 export const geminiWordAttempt = async (req, res) => {
   try {
     const studentId = req.user._id;
-    const { wordId, expected, responseTimeMs } = req.body;
+    const { wordId, expected, responseTimeMs, visualScore, visionHard } = req.body;
     const audio = req.file;
 
     if (!wordId || !expected || !audio || responseTimeMs === undefined) {
@@ -181,6 +192,16 @@ export const geminiWordAttempt = async (req, res) => {
     const spokenNorm = normalize(spoken);
 
     const wordCorrect = expectedNorm === spokenNorm;
+    const comparedLength = Math.max(expectedNorm.length, 1);
+    const positionalMatches = expectedNorm
+      .split("")
+      .reduce(
+        (count, char, index) => count + (char === (spokenNorm[index] || "") ? 1 : 0),
+        0
+      );
+    const partialCorrect =
+      !wordCorrect && positionalMatches / comparedLength >= 0.5;
+    const canAdvance = wordCorrect || partialCorrect;
 
     console.log("HIT /words/attempt-audio", {
       wordId,
@@ -196,49 +217,69 @@ export const geminiWordAttempt = async (req, res) => {
     });
 
     const problemLetters = new Set();
-    const minLen = Math.min(expectedNorm.length, spokenNorm.length);
+    const letterAdjustments = new Map();
+    const expectedChars = expectedNorm.split("");
+    const spokenChars = spokenNorm.split("");
 
-    for (let i = 0; i < minLen; i++) {
-      const expChar = expectedNorm[i];
-      const spkChar = spokenNorm[i];
+    for (let i = 0; i < expectedChars.length; i++) {
+      const expChar = expectedChars[i];
+      const spkChar = spokenChars[i] || "";
 
-      if (expChar !== spkChar) {
-        if (expChar >= "a" && expChar <= "z") {
-          problemLetters.add(expChar);
-        }
+      if (!(expChar >= "a" && expChar <= "z")) continue;
+
+      if (expChar === spkChar) {
+        const currentReward = letterAdjustments.get(expChar) || 0;
+        // Small positive reinforcement when the student pronounces this letter correctly in a word.
+        letterAdjustments.set(expChar, currentReward + 0.1);
+      } else {
+        problemLetters.add(expChar);
+        const currentReward = letterAdjustments.get(expChar) || 0;
+        letterAdjustments.set(expChar, currentReward - 0.2);
       }
     }
 
     const fluencyScore = Math.min(1, 3000 / Number(responseTimeMs));
-
+    const visualScoreValue = Math.max(0, Number(visualScore || 0));
+    const visionPenalty = visualScoreValue * 0.2;
     const wordReward = 0.6 * (wordCorrect ? 1 : 0) + 0.4 * fluencyScore;
+    const finalReward = Math.max(0, wordReward - visionPenalty);
 
     console.log("REWARD DEBUG", {
       responseTimeMs,
       fluencyScore,
       wordCorrect,
       wordReward,
+      visualScore: visualScoreValue,
+      visionHard,
+      visionPenalty,
+      finalReward,
     });
 
-    await updateBanditState(wordState, wordReward);
+    await updateBanditState(wordState, finalReward);
     wordState.isActive = false;
     await wordState.save();
 
-    for (const letter of problemLetters) {
-      const letterState = await LetterState.findOne({ studentId, letter });
-      if (!letterState) continue;
-      const letterPenalty = 0.2;
-      updateBanditState(letterState, -letterPenalty);
+    for (const [letter, rewardDelta] of letterAdjustments.entries()) {
+      const letterState = await LetterState.findOneAndUpdate(
+        { studentId, letter },
+        {},
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      updateBanditState(letterState, rewardDelta);
       await letterState.save();
     }
 
     return res.json({
       success: true,
       wordCorrect,
+      partialCorrect,
+      canAdvance,
       problemLetters: Array.from(problemLetters),
       transcript: spoken,
       message: wordCorrect
         ? "Good job! Keep going."
+        : partialCorrect
+        ? "Almost there. Try the same word once more."
         : "Nice try! Focus on the highlighted sounds.",
     });
   } catch (err) {
