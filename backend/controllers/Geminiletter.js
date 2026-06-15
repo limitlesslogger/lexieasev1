@@ -32,12 +32,13 @@ export const getNextLetter = async (req, res) => {
   // Deactivate any previous active letter
   await LetterState.updateMany(
     { studentId, isActive: true },
-    { isActive: false }
+    { isActive: false },
   );
 
   // Cold start: ensure all letters exist
+  //Every student has all 26 letters initialized
   await Promise.all(
-    LETTERS.map(letter =>
+    LETTERS.map((letter) =>
       LetterState.findOneAndUpdate(
         { studentId, letter },
         {},
@@ -45,11 +46,11 @@ export const getNextLetter = async (req, res) => {
           upsert: true,
           new: true,
           setDefaultsOnInsert: true,
-        }
-      )
-    )
+        },
+      ),
+    ),
   );
-
+  //Now we have 26 states
   const states = await LetterState.find({ studentId });
 
   const chosen = selectNextState(states, EPSILON);
@@ -165,13 +166,10 @@ export const geminiLetterAttempt = async (req, res) => {
       }
     }
 
-    if (!matched && spoken.length > 0) score = 30;
+    if (!matched && spoken.length > 0) score = 0;
 
     // 🎯 Normalize Gemini output → bandit reward
-    const reward =
-      score >= 80 ? 1 :
-      score >= 30 ? 0.4 :
-      0;
+    const reward = score >= 80 ? 1 : 0;
 
     /* =====================
        Bandit Update
@@ -190,7 +188,6 @@ export const geminiLetterAttempt = async (req, res) => {
       avgReward: state.avgReward,
       message: reward >= 1 ? "🎉 Correct!" : "❌ Try again",
     });
-
   } catch (err) {
     console.error("Gemini letter attempt error:", err);
 

@@ -1,8 +1,18 @@
 import React, { useState, useRef, useEffect } from "react";
 import { apiFetch } from "../api/api";
+import { useOutletContext } from "react-router-dom";
+import ReadingLens from "./ReadingLens";
 
 export default function LetterLevelGemini() {
+  const outletContext = useOutletContext();
+  const readingStyle = outletContext?.readingStyle;
+  const setLivePreference = outletContext?.setLivePreference;
+  const isBrushDown = outletContext?.isBrushDown;
+  const setIsBrushDown = outletContext?.setIsBrushDown;
+  const brushState = outletContext?.brushState;
+  const clearHighlightsVersion = outletContext?.clearHighlightsVersion;
   const [letter, setLetter] = useState("");
+  const [painted, setPainted] = useState(false);
   const [status, setStatus] = useState("");
   const [score, setScore] = useState(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -10,6 +20,7 @@ export default function LetterLevelGemini() {
 
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const lensAreaRef = useRef(null);
 
   /* =========================
      Check browser support
@@ -33,6 +44,7 @@ export default function LetterLevelGemini() {
       }
 
       setLetter(data.letter.toUpperCase());
+      setPainted(false);
       setScore(null);
       setStatus("");
     } catch (err) {
@@ -45,6 +57,15 @@ export default function LetterLevelGemini() {
   useEffect(() => {
     fetchNextLetter();
   }, []);
+
+  useEffect(() => {
+    setPainted(false);
+  }, [clearHighlightsVersion]);
+
+  const applyBrush = () => {
+    if (!readingStyle?.paintbrushEnabled) return;
+    setPainted(brushState?.mode === "erase" ? false : true);
+  };
 
   /* =========================
      Recording logic
@@ -165,13 +186,105 @@ export default function LetterLevelGemini() {
      UI (UNCHANGED)
   ========================== */
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
+    <div
+      style={{
+        ...styles.container,
+        background: readingStyle?.colors.page || styles.container.background,
+        fontFamily: readingStyle?.fontFamily || styles.container.fontFamily,
+      }}
+    >
+      <div
+        style={{
+          ...styles.card,
+          backgroundColor: readingStyle?.colors.card || styles.card.backgroundColor,
+          border: `1px solid ${readingStyle?.colors.border || "#e5e7eb"}`,
+        }}
+      >
         <h2 style={styles.title}>🔤 Letter Practice</h2>
 
-        <div style={styles.letterDisplay}>{letter}</div>
+        <div ref={lensAreaRef} style={styles.lensArea}>
+          <div
+            onPointerDown={() => {
+              if (!readingStyle?.paintbrushEnabled) return;
+              setIsBrushDown?.(true);
+              applyBrush();
+            }}
+            onPointerMove={() => {
+              if (!readingStyle?.paintbrushEnabled || !isBrushDown) return;
+              applyBrush();
+            }}
+            onPointerEnter={() => {
+              if (!readingStyle?.paintbrushEnabled || !isBrushDown) return;
+              applyBrush();
+            }}
+            style={{
+              ...styles.letterDisplay,
+              color: painted
+                ? brushState?.color || readingStyle?.brushColor || readingStyle?.colors.ink
+                : readingStyle?.colors.ink || styles.letterDisplay.color,
+              fontFamily: readingStyle?.fontFamily || styles.letterDisplay.fontFamily,
+              fontSize: `${120 * (readingStyle?.fontScale || 1)}px`,
+              letterSpacing: readingStyle?.letterSpacing || "0.08em",
+              lineHeight: readingStyle?.lineHeight || 1.2,
+              background: readingStyle?.focusColor || "transparent",
+              transform: "scale(1)",
+              transition: "color 0.18s ease, background 0.18s ease",
+              borderRadius: 18,
+              display: "inline-block",
+              padding: "8px 22px",
+              touchAction: readingStyle?.paintbrushEnabled ? "none" : "auto",
+              userSelect: readingStyle?.paintbrushEnabled ? "none" : "text",
+            }}
+          >
+            {letter}
+          </div>
+          <ReadingLens
+            visible={readingStyle?.magnifierEnabled}
+            containerRef={lensAreaRef}
+            size={readingStyle?.lensSize || 180}
+            zoom={readingStyle?.lensZoom || 1.35}
+            shape={readingStyle?.lensShape || "rounded"}
+            opacity={readingStyle?.lensOpacity ?? 0.18}
+            onZoomIn={() =>
+              setLivePreference(
+                "lensZoom",
+                Math.min(2.2, Number(((readingStyle?.lensZoom || 1.35) + 0.1).toFixed(2)))
+              )
+            }
+            onZoomOut={() =>
+              setLivePreference(
+                "lensZoom",
+                Math.max(1, Number(((readingStyle?.lensZoom || 1.35) - 0.1).toFixed(2)))
+              )
+            }
+            onResizeUp={() =>
+              setLivePreference(
+                "lensSize",
+                Math.min(280, (readingStyle?.lensSize || 180) + 20)
+              )
+            }
+            onResizeDown={() =>
+              setLivePreference(
+                "lensSize",
+                Math.max(120, (readingStyle?.lensSize || 180) - 20)
+              )
+            }
+            onResizeTo={(nextSize) => setLivePreference("lensSize", nextSize)}
+            onClose={() => setLivePreference("magnifierEnabled", false)}
+          />
+        </div>
 
-        <div style={styles.instructions}>
+        <div
+          style={{
+            ...styles.instructions,
+            color: readingStyle?.colors.muted || styles.instructions.color,
+            fontFamily: readingStyle?.fontFamily || styles.instructions.fontFamily,
+            fontSize: `${18 * (readingStyle?.fontScale || 1)}px`,
+            letterSpacing: readingStyle?.letterSpacing || "0.08em",
+            wordSpacing: readingStyle?.wordSpacing || "0.18em",
+            lineHeight: readingStyle?.lineHeight || 1.65,
+          }}
+        >
           Click the microphone and clearly say: <strong>"{letter}"</strong>
         </div>
 
@@ -190,24 +303,6 @@ export default function LetterLevelGemini() {
         </div>
 
         {status && <p style={styles.status}>{status}</p>}
-
-        {score !== null && (
-          <div
-            style={{
-              ...styles.scoreContainer,
-              backgroundColor: score >= 80 ? "#d1fae5" : "#fee2e2",
-            }}
-          >
-            <p
-              style={{
-                ...styles.score,
-                color: score >= 80 ? "#059669" : "#dc2626",
-              }}
-            >
-              Score: {score}/100
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -224,6 +319,8 @@ const styles = {
     minHeight: "100vh",
     background: "linear-gradient(to bottom, #f8fafc, #ffffff)",
     padding: "24px",
+    fontFamily:
+      '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif',
   },
   card: {
     backgroundColor: "white",
@@ -232,6 +329,14 @@ const styles = {
     boxShadow: "0 4px 6px rgba(0,0,0,0.1)",
     maxWidth: "600px",
     width: "100%",
+  },
+  lensArea: {
+    position: "relative",
+    display: "flex",
+    justifyContent: "center",
+    alignItems: "center",
+    minHeight: 220,
+    margin: "10px 0 18px",
   },
   title: {
     fontSize: "26px",
@@ -270,15 +375,5 @@ const styles = {
     fontSize: "18px",
     textAlign: "center",
     margin: "20px 0",
-  },
-  scoreContainer: {
-    marginTop: "20px",
-    padding: "20px",
-    borderRadius: "12px",
-    textAlign: "center",
-  },
-  score: {
-    fontSize: "36px",
-    fontWeight: "bold",
   },
 };

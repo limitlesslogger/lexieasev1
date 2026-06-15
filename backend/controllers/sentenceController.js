@@ -2,12 +2,15 @@ import SentenceState from "../models/SentenceState.js";
 import LetterState from "../models/LetterState.js";
 import { selectNextState } from "../src/bandit/selectNext.js";
 import { updateBanditState } from "../src/bandit/updateState.js";
-import { SENTENCES } from "../data/sentences.js";
+import { getTrainingCorpusForStudent } from "../services/trainingContentService.js";
+import { initializeAI } from "./Geminiletter.js";
 
 // Chooses the next sentence based on the student's weakest letters (2–3)
 export const getNextSentence = async (req, res) => {
   try {
     const studentId = req.user._id;
+    const corpus = await getTrainingCorpusForStudent(studentId);
+    const availableSentences = corpus.sentences;
     
     // Get weakest letters
     const weakLetterStates = await LetterState.find({ studentId })
@@ -33,7 +36,7 @@ export const getNextSentence = async (req, res) => {
       return score;
     };
 
-    const rankedSentences = SENTENCES
+    const rankedSentences = availableSentences
       .map(s => ({
         ...s,
         score: scoreSentence(s.text, weakLetters),
@@ -44,7 +47,7 @@ export const getNextSentence = async (req, res) => {
     const finalSentences =
       rankedSentences.length > 0
         ? rankedSentences
-        : SENTENCES.map(s => ({ ...s, score: 1 }));
+        : availableSentences.map(s => ({ ...s, score: 1 }));
 
     // Ensure SentenceState exists
     await Promise.all(
@@ -102,14 +105,23 @@ export const getNextSentence = async (req, res) => {
     await chosenState.save();
 
     // Return sentence
-    const chosenSentence = SENTENCES.find(
+    const chosenSentence = availableSentences.find(
       s => s.id === chosenState.sentenceId
     );
+    if (!chosenSentence) {
+      return res.status(500).json({
+        success: false,
+        error: "Selected sentence not found in training corpus",
+      });
+    }
 
     return res.json({
       success: true,
       sentenceId: chosenSentence.id,
       sentence: chosenSentence.text,
+      focusWords: chosenSentence.focusWords || [],
+      sourceDocTitle: chosenSentence.sourceDocTitle || null,
+      trainingSource: corpus.source,
       targetLetters: weakLetters,
     });
 
@@ -127,7 +139,37 @@ export const logSentenceAttempt = async (req, res) => {
   console.log("HIT /sentences/attempt", req.body);
   try {
     const studentId = req.user._id;
-    const { sentenceId, expected, spoken, responseTimeMs, visualScore, visualIsHard } = req.body;
+    const { sentenceId, expected, responseTimeMs, visualScore, visualIsHard } = req.body;
+    let { spoken } = req.body;
+
+    if ((!spoken || !String(spoken).trim()) && req.file) {
+      const audioBuffer = req.file.buffer;
+      const base64Audio = audioBuffer.toString("base64");
+
+      const geminiAI = initializeAI();
+      const response = await geminiAI.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                inlineData: {
+                  mimeType: req.file.mimetype || "audio/webm",
+                  data: base64Audio,
+                },
+              },
+              {
+                text:
+                  "Listen to this audio and transcribe ONLY the spoken sentence. Return only the text.",
+              },
+            ],
+          },
+        ],
+      });
+
+      spoken = response.text?.toLowerCase().trim() || "";
+    }
 
     if (!sentenceId || !expected || !spoken || responseTimeMs === undefined) {
       return res.status(400).json({
@@ -177,27 +219,38 @@ export const logSentenceAttempt = async (req, res) => {
       matchedWords.length / expectedWords.length;
 
     const sentenceCorrect = sentenceAccuracy >= 0.7;
+    const partialCorrect = !sentenceCorrect && sentenceAccuracy >= 0.4;
+    const canAdvance = sentenceCorrect || partialCorrect;
 
     // Extract letter-level errors   
     const problemLetters = new Set();
+    const letterAdjustments = new Map();
+    const expectedChars = expectedNorm.split("");
+    const spokenChars = spokenNorm.split("");
 
-    const minLen = Math.min(expectedNorm.length, spokenNorm.length);
+    for (let i = 0; i < expectedChars.length; i++) {
+      const expChar = expectedChars[i];
+      const spkChar = spokenChars[i] || "";
 
-    for (let i = 0; i < minLen; i++) {
-      const expChar = expectedNorm[i];
-      const spkChar = spokenNorm[i];
+      if (!(expChar >= "a" && expChar <= "z")) continue;
 
-      if (expChar !== spkChar) {
-        if (expChar >= "a" && expChar <= "z") {
-          problemLetters.add(expChar);
-        }
+      if (expChar === spkChar) {
+        const currentReward = letterAdjustments.get(expChar) || 0;
+        // Small positive reinforcement when a letter is pronounced correctly inside a sentence.
+        letterAdjustments.set(expChar, currentReward + 0.05);
+      } else {
+        problemLetters.add(expChar);
+        const currentReward = letterAdjustments.get(expChar) || 0;
+        letterAdjustments.set(expChar, currentReward - 0.2);
       }
     }
 
     // Update SentenceState   
     const fluencyScore = Math.min(1, 3000 / responseTimeMs);
-    if (!visualScore) visualScore = 0;
-    const visionPenalty = visualScore * 0.2;
+    const visualScoreValue = Number(visualScore || 0);
+    // const visualScoreValue =
+    // typeof visualScore === "number" ? visualScore : 0;
+    const visionPenalty = visualScoreValue * 0.2;
 
     const sentenceReward =
       0.6 * (sentenceCorrect ? 1 : 0) +
@@ -206,31 +259,49 @@ export const logSentenceAttempt = async (req, res) => {
     const finalReward = Math.max(0, sentenceReward - visionPenalty);
 
     console.log("REWARD DEBUG", {
-    responseTimeMs,
-    fluencyScore,
-    sentenceCorrect,
-    sentenceReward,
-    visualScore,
-    visualIsHard
-  });
+      responseTimeMs,
+      fluencyScore,
+      sentenceCorrect,
+      sentenceReward,
+      visualScore: visualScoreValue,
+      visualIsHard,
+      visionPenalty,
+      finalReward,
+    });
 
-    await updateBanditState(sentenceState, sentenceReward);
+    await updateBanditState(sentenceState, finalReward);
+    
+    // Store the attempt with spoken response
+    sentenceState.attempts = sentenceState.attempts || [];
+    // sentenceState.attempts.push({
+    //   spoken: spoken || "",
+    //   expected: expected || "",
+    //   accuracy: Math.round(sentenceAccuracy * 100),
+    //   responseTime: responseTimeMs,
+    //   timestamp: new Date(),
+    // });
+    sentenceState.attempts.push({
+    spoken: spoken || "",
+    expected: expected || "",
+    accuracy: Math.round(sentenceAccuracy * 100),
+    responseTime: responseTimeMs,
+    visualScore: visualScoreValue,
+    timestamp: new Date(),
+  });
+    
     sentenceState.isActive = false;
     await sentenceState.save();
 
-    // Reinforce LetterState
-    for (const letter of problemLetters) {
-      const letterState = await LetterState.findOne({
-        studentId,
-        letter,
-      });
+    // Reinforce LetterState in both directions so sentence practice teaches the same
+    // underlying letter weaknesses that drive future filtering.
+    for (const [letter, rewardDelta] of letterAdjustments.entries()) {
+      const letterState = await LetterState.findOneAndUpdate(
+        { studentId, letter },
+        {},
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
 
-      if (!letterState) continue;
-
-      // Small penalty, not harsh
-      const letterPenalty = 0.2;
-
-      updateBanditState(letterState, -letterPenalty);
+      updateBanditState(letterState, rewardDelta);
       await letterState.save();
     }
 
@@ -238,10 +309,15 @@ export const logSentenceAttempt = async (req, res) => {
     return res.json({
       success: true,
       sentenceCorrect,
+      partialCorrect,
+      canAdvance,
       sentenceAccuracy,
+      transcript: spoken,
       problemLetters: Array.from(problemLetters),
       message: sentenceCorrect
         ? "Good job! Keep going."
+        : partialCorrect
+        ? "Almost there. Try the same sentence once more."
         : "Nice try! Focus on the highlighted sounds.",
     });
 

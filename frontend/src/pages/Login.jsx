@@ -46,7 +46,7 @@ export default function Login() {
       // Navigate based on role
       switch (data.role) {
         case "student":
-          navigate("/student/letter-level");
+          navigate("/student/dashboard");
           break;
         case "teacher":
           navigate("/teacher/dashboard");

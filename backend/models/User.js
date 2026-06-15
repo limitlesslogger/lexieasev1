@@ -25,6 +25,18 @@ const userSchema = new mongoose.Schema(
       enum: ["admin", "teacher", "parent", "student"],
       default: "student",
     },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+    createdByRole: {
+      type: String,
+      enum: ["teacher", "parent", null],
+      default: null,
+      index: true,
+    },
   },
   { timestamps: true }
 );
